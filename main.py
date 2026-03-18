@@ -34,7 +34,7 @@ def openai_llm(conversation_text: str) -> str:
 #Node 1: User Input
 def user_input_node(state: ChatState) -> ChatState:
     messages = state.get("messages", [])
-    user_text = state.get("user_input", "what is LLM")
+    user_text = state.get("user_input")
     messages.append("user: " + user_text)
     return {**state, "messages": messages}
 
@@ -57,6 +57,6 @@ graph.add_edge("agent", END)
 app = graph.compile()
 
 #Run the graph
-final_state = app.invoke({"user_input": "what is LLM"})
+final_state = app.invoke({"user_input": "what is my previous question?"})
 print("final state keys", list(final_state.keys()))
 print(final_state["result"])

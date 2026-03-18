@@ -1,4 +1,4 @@
-from groq import Groq
+from models.groq import Groq
 
 client = Groq(api_key="")
 completion = client.chat.completions.create(
