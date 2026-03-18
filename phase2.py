@@ -8,6 +8,10 @@ from langgraph.graph import StateGraph, START, END
 from langchain.messages import AnyMessage, SystemMessage, ToolMessage, HumanMessage
 from typing_extensions import TypedDict, Annotated, Optional, Literal
 
+from langchain_tavily import TavilySearch
+from langchain_community.tools import ArxivQueryRun
+from langchain_community.utilities import ArxivAPIWrapper
+
 load_dotenv(override=True)
 
 # Initialize the OpenAI client
@@ -31,9 +35,30 @@ def multiply(a: int, b: int) -> int:
     """
     return a * b
 
+@tool
+def tavily_tool_run(query: str) -> str:
+    """
+    Use this tool when the LLM needs fresh or real-time web information.
+    It searches the web with Tavily and returns the top results for the query as a string.
+    """
+    tavily_run = TavilySearch(max_results=2, tavily_api_key=os.getenv("TAVILY_API_KEY"))
+    return tavily_run.invoke(query)
+
+@tool
+def arxiv_tool_run(query: str) -> str:
+    """
+    Use this tool when the LLM needs academic or research-paper sources.
+    It searches arXiv for papers matching the query and returns top results as a string.
+    """
+    arxiv_wrapper = ArxivAPIWrapper( #type: ignore
+        top_k_results=2,
+        doc_content_chars_max=1024
+    )
+    arxiv_run = ArxivQueryRun(api_wrapper=arxiv_wrapper)
+    return arxiv_run.invoke(query)
 
 # Augment the LLM with tools
-tools = [multiply]
+tools = [multiply, tavily_tool_run, arxiv_tool_run]
 tools_by_name = {tool.name: tool for tool in tools}
 model_with_tools = llm.bind_tools(tools)
 
@@ -106,7 +131,7 @@ with open(graph_path, "wb") as f:
 print(f"Graph image saved to: {graph_path}")
 
 # Invoke
-messages = [HumanMessage(content="what is AI in two words?")]
+messages = [HumanMessage(content="what is latest news about iran and israel?")]
 messages = agent.invoke({"messages": messages})
 for m in messages["messages"]:
     m.pretty_print()

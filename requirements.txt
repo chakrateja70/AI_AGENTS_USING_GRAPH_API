@@ -4,3 +4,5 @@ python-dotenv==1.2.2
 langchain==1.2.12
 langchain-openai==1.1.11
 ipython==9.10.0
+langchain-tavily==0.2.17
+langchain-community==0.4.1
