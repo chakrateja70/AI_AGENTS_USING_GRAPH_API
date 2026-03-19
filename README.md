@@ -37,7 +37,7 @@ Install dependencies either with `pip` or a modern tool that reads `pyproject.to
 ### Option A: pip + requirements.txt
 
 ```bash
-python -m venv .venv
+uv venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
