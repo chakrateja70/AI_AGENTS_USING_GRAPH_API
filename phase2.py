@@ -131,7 +131,7 @@ with open(graph_path, "wb") as f:
 print(f"Graph image saved to: {graph_path}")
 
 # Invoke
-messages = [HumanMessage(content="what is latest news about iran and israel?")]
+messages = [HumanMessage(content="what is latest news about github copilot news?")]
 messages = agent.invoke({"messages": messages})
 for m in messages["messages"]:
     m.pretty_print()
