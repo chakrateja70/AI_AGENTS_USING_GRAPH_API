@@ -1,0 +1,320 @@
+import os
+from dotenv import load_dotenv
+from openai import OpenAI
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, List, Optional, Dict, Any
+import json
+import requests
+import subprocess
+import time
+from enum import Enum
+
+load_dotenv(override=True)
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class ToolType(Enum):
+    GOOGLE_DOCS = "google_docs"
+    GMAIL = "gmail"
+    CALENDAR = "calendar"
+
+# MCP Server configuration
+MCP_SERVERS = {
+    ToolType.GOOGLE_DOCS: {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-google-docs"],
+        "env": {
+            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID"),
+            "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "GOOGLE_REDIRECT_URI": os.getenv("GOOGLE_REDIRECT_URI")
+        }
+    },
+    ToolType.GMAIL: {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-gmail"],
+        "env": {
+            "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID"),
+            "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "GOOGLE_REDIRECT_URI": os.getenv("GOOGLE_REDIRECT_URI")
+        }
+    }
+}
+
+# Chat state with tool execution capabilities
+class ChatState(TypedDict, total=False):
+    messages: List[dict]
+    result: Optional[str]
+    user_input: Optional[str]
+    tool_requests: List[dict]
+    tool_responses: List[dict]
+    active_tools: Dict[str, Any]
+
+# MCP Server Manager
+class MCPServerManager:
+    def __init__(self):
+        self.servers = {}
+       
+    def start_server(self, tool_type: ToolType):
+        if tool_type in self.servers:
+            return self.servers[tool_type]
+           
+        config = MCP_SERVERS[tool_type]
+        env = {**os.environ, **config["env"]}
+       
+        try:
+            process = subprocess.Popen(
+                [config["command"]] + config["args"],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+           
+            # Wait a bit for server to start
+            time.sleep(2)
+            self.servers[tool_type] = process
+            return process
+           
+        except Exception as e:
+            print(f"Failed to start {tool_type.value} server: {e}")
+            return None
+
+    def stop_all_servers(self):
+        for process in self.servers.values():
+            process.terminate()
+        self.servers.clear()
+
+# Initialize MCP server manager
+mcp_manager = MCPServerManager()
+
+# Enhanced LLM Model with tool calling
+def openai_llm_with_tools(conversation_text: str, available_tools: List[dict]) -> dict:
+    messages = [
+        {
+            "role": "system",
+            "content": """You are a helpful assistant with access to various tools.
+            You can create Google Docs, send emails, and perform other operations.
+            When the user asks you to perform an action, use the appropriate tool.
+            Always respond in a helpful manner and confirm when actions are completed."""
+        },
+        {
+            "role": "user",
+            "content": conversation_text
+        }
+    ]
+   
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        tools=available_tools,
+        tool_choice="auto"
+    )
+   
+    return response.choices[0].message
+
+# Tool definitions for MCP operations
+TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_google_doc",
+            "description": "Create a new Google Document",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the document"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Initial content of the document"
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_google_doc",
+            "description": "Update an existing Google Document",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "string",
+                        "description": "ID of the document to update"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content to add to the document"
+                    }
+                },
+                "required": ["document_id", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Send an email using Gmail",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient email address"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Email subject"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Email body content"
+                    }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }
+    }
+]
+
+# Tool execution functions
+def execute_tool(tool_name: str, parameters: dict) -> str:
+    try:
+        if tool_name == "create_google_doc":
+            return create_google_doc(parameters)
+        elif tool_name == "update_google_doc":
+            return update_google_doc(parameters)
+        elif tool_name == "send_email":
+            return send_email(parameters)
+        else:
+            return f"Unknown tool: {tool_name}"
+    except Exception as e:
+        return f"Error executing tool {tool_name}: {str(e)}"
+
+def create_google_doc(params: dict) -> str:
+    # Start Google Docs MCP server if not running
+    mcp_manager.start_server(ToolType.GOOGLE_DOCS)
+   
+    # In a real implementation, you would use the MCP server connection
+    # For now, we'll simulate the response
+    title = params.get("title", "Untitled Document")
+    content = params.get("content", "")
+   
+    # Simulate API call to Google Docs
+    print(f"Creating Google Doc: {title}")
+    print(f"Content: {content[:100]}...")
+   
+    return f"Created Google Document '{title}' successfully. Document ID: doc_12345"
+
+def update_google_doc(params: dict) -> str:
+    mcp_manager.start_server(ToolType.GOOGLE_DOCS)
+   
+    document_id = params.get("document_id")
+    content = params.get("content", "")
+   
+    print(f"Updating Google Doc {document_id}")
+    print(f"New content: {content[:100]}...")
+   
+    return f"Updated Google Document {document_id} successfully"
+
+def send_email(params: dict) -> str:
+    mcp_manager.start_server(ToolType.GMAIL)
+   
+    to = params.get("to")
+    subject = params.get("subject")
+    body = params.get("body")
+   
+    print(f"Sending email to: {to}")
+    print(f"Subject: {subject}")
+    print(f"Body: {body[:100]}...")
+   
+    return f"Email sent to {to} successfully"
+
+# Node 1: User Input
+def user_input_node(state: ChatState) -> ChatState:
+    messages = state.get("messages", [])
+    user_text = state.get("user_input")
+    messages.append({"role": "user", "content": user_text})
+    return {**state, "messages": messages}
+
+# Node 2: Agent Node with Tool Calling
+def agent_node(state: ChatState) -> ChatState:
+    messages = state.get("messages", [])
+    conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+   
+    # Get LLM response with tool calling
+    llm_response = openai_llm_with_tools(conversation_text, TOOL_DEFINITIONS)
+   
+    tool_requests = []
+    tool_responses = []
+   
+    # Check if tool calls are present
+    if llm_response.tool_calls:
+        for tool_call in llm_response.tool_calls:
+            tool_name = tool_call.function.name
+            parameters = json.loads(tool_call.function.arguments)
+           
+            tool_requests.append({
+                "tool_name": tool_name,
+                "parameters": parameters
+            })
+           
+            # Execute the tool
+            result = execute_tool(tool_name, parameters)
+            tool_responses.append({
+                "tool_name": tool_name,
+                "result": result
+            })
+           
+            # Add tool response to messages
+            messages.append({
+                "role": "tool",
+                "content": result,
+                "tool_call_id": tool_call.id
+            })
+   
+    # Add assistant response to messages
+    if llm_response.content:
+        messages.append({
+            "role": "assistant",
+            "content": llm_response.content
+        })
+   
+    return {
+        **state,
+        "messages": messages,
+        "result": llm_response.content,
+        "tool_requests": tool_requests,
+        "tool_responses": tool_responses
+    }
+
+# Graph setup
+graph = StateGraph(ChatState)
+graph.add_node("user", user_input_node)
+graph.add_node("agent", agent_node)
+
+graph.set_entry_point("user")
+graph.add_edge("user", "agent")
+graph.add_edge("agent", END)
+app = graph.compile()
+
+# Run the graph with cleanup
+try:
+    # Example usage
+    final_state = app.invoke({
+        "user_input": "Create a Google Doc titled 'Meeting Notes' with some initial content about our project discussion"
+    })
+   
+    print("Final result:", final_state["result"])
+    print("Tool requests:", final_state.get("tool_requests", []))
+    print("Tool responses:", final_state.get("tool_responses", []))
+   
+finally:
+    # Clean up MCP servers
+    mcp_manager.stop_all_servers()
